@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SimpleAzureFileServiceDemo;
@@ -19,32 +20,56 @@ namespace SimpleAzureFileServiceDemoTests
         [TestMethod]
         public async Task CreateFileAsync()
         {
-
             IEnumerable<string> headerValues = new List<string>();
-            var headersFound = false;
-            IEnumerable<string> fileHeaders;
 
-            Action<HttpResponseMessage> respAction = async (r) =>
+            Action<HttpResponseMessage> respAction = (r) =>
             {
                 // check whatever header or content values indicate the success of this test here
-                headersFound = r.Headers.TryGetValues("Authorization", out headerValues);
+                r.Headers.TryGetValues("Authorization", out headerValues);
             };
 
             var repo = new FakeHttpClientRepo(respAction);
+            //var repo = new HttpClientRepo();
 
             var azureFileService = new AzureFileService(accountName, accessKey, repo);
 
             await azureFileService.CreateFileAsync(new Uri(uripath));
 
             // Check if encryption is possible with accessKey
-            Assert.IsTrue(headersFound && headerValues.Any(v => v.Contains($"SharedKey {accountName}:")));
+            Assert.IsTrue(headerValues.Any(v => v.Contains($"SharedKey {accountName}:")));
         }
 
         [TestMethod]
-        public async Task PushRangeAsync()
+        public async Task PutRangeAsync()
         {
+            const string testContent = "Content as String";
+            IEnumerable<string> headerValues = new List<string>();
+            IEnumerable<string> xmsheaderValues = new List<string>();
+            long? contentLengthReq = null;
+            Action<HttpResponseMessage> respAction = (r) =>
+            {
+                r.Headers.TryGetValues("Authorization", out headerValues);
+                r.Headers.TryGetValues("x-ms-range", out xmsheaderValues);
+                contentLengthReq = r.Content.Headers.ContentLength;
+            };
 
+            var repo = new FakeHttpClientRepo(respAction);
+            //var repo = new HttpClientRepo();
 
+            var azureFileService = new AzureFileService(accountName, accessKey, repo);
+
+            byte[] bytes = Encoding.UTF8.GetBytes(testContent);
+
+            await azureFileService.PutRangeAsync(
+                new Uri(uripath + "?comp=range"),
+                bytes);
+
+            var xmsStringComparison = $"bytes=0-{(bytes.Length - 1).ToString()}";
+
+            Assert.IsTrue(
+                bytes.Length == contentLengthReq
+                && xmsheaderValues.Any(hv => hv.Contains(xmsStringComparison))
+                && headerValues.Any(v => v.Contains($"SharedKey {accountName}:")));
         }
     }
 }
